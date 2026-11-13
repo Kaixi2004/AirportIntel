@@ -4,7 +4,7 @@
 
 <p align="center"><em>因为Intel Wi-Fi无法进行隔空投送，所以我做了这个Kext</em></p>
 
-**在 macOS 14.89上为 Intel Wi-Fi 网卡实现 AirDrop 功能。** AirportIntel 是 AirportItlwm 的一个分支版本，它引入了 AWDL（即 AirDrop 所依赖的点对点 Wi-Fi 链路技术）。其余功能则由苹果原生的 Wi-Fi 协议栈负责处理。在使用 AirDrop 的同时，正常的 Wi-Fi 连接依然可以保持畅通。
+**在 macOS 14.8.9上为 Intel Wi-Fi 网卡实现 AirDrop 功能。** AirportIntel 是 AirportItlwm 的一个分支版本，它引入了 AWDL（即 AirDrop 所依赖的点对点 Wi-Fi 链路技术）。其余功能则由苹果原生的 Wi-Fi 协议栈负责处理。在使用 AirDrop 的同时，正常的 Wi-Fi 连接依然可以保持畅通。
 
 ## ⚠️ 温馨提示：
 
@@ -34,7 +34,7 @@
 
 | macOS  | Builds         | AirDrop                             |
 | ------ | -------------- | ----------------------------------- |
-| Sonoma | 14.8.9，测试版 | Test build, not yet run on hardware |
+| Sonoma | 14.8.9，测试版 | 工作正常 |
 
 在其他任何版本中，驱动程序都会保持 AirDrop 关闭状态，仅作为普通 Wi-Fi 使用。
 
