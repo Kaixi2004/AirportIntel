@@ -65,7 +65,7 @@
 
 ## 如果睡眠唤醒后/长时间运行系统隔空投送失效
 
-- 请安装Awdl Watch Dog工具，安装说明请参阅[Awdl Watch Dog安装说明](https://github.com/Kaixi2004/AirportIntel/tree/main/tools/awdl-watchdog/使用安装说明.md)
+- 请安装Awdl Watch Dog工具，安装说明请参阅[Awdl Watch Dog安装说明](https://github.com/Kaixi2004/AirportIntel/tree/V1.0-Alpha/tools/awdl-watchdog/使用安装说明.md)
 
 ## 致谢
 
