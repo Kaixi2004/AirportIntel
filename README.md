@@ -62,7 +62,7 @@
 - **连接过程可能较慢，** 这种情况多见于从 iPhone 连接到 Mac 时。
 - **当 AirDrop 处于监听状态时，常规 Wi-Fi 的速度会有所下降**（因为它们共用同一个无线模块）。
 
-## 如果睡眠唤醒后/长时间运行系统隔空投送失效
+## 如果睡眠唤醒后统隔空投送失效
 
 - 请安装Awdl Watch Dog工具，安装说明请参阅[Awdl Watch Dog安装说明](https://github.com/Kaixi2004/AirportIntel/blob/main/docs/awdl-watchdog/安装使用说明.md)
 
