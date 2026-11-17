@@ -71,7 +71,7 @@
 
 AirportIntel的开发建立在许多前人的工作基础之上：
 
-- **[Forbiddenltlwm](https://github.com/retropineaple/ForbiddenItlwm)**基于此链接项目的代码适配并修复已知问题。
+- **[Forbiddenltlwm](https://github.com/retropineaple/ForbiddenItlwm)** 基于此链接项目的代码适配并修复已知问题。
 - **[itlwm / AirportItlwm](https://github.com/OpenIntelWireless/itlwm)**（由 zxystd 及 OpenIntelWireless 贡献者开发）：这是本项目所基于的英特尔（Intel）Wi-Fi 驱动程序。
 - **kgp-macPro/AirportItlwm-Tahoe**：根据基础代码中的注释，该项目为本项目的 DMA 设计提供了参考。
 - **[OpenBSD](https://www.openbsd.org)**：提供了 net80211 框架以及 iwx、iwm 和 iwn 驱动程序。
