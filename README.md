@@ -14,6 +14,7 @@
 > 本项目在开发过程中使用了人工智能（AI）技术。** 驱动程序代码、逆向工程分析以及测试工具，大部分是在 AI（Claude，WorkBuddy）的辅助下编写完成的。本人并非专业的内核开发人员。尽管我对开发过程进行了密切监控与指导，并对代码进行了深入研究、审核及硬件实机测试，但 AI 编写的代码仍可能包含在有限的测试环境下无法被发现的错误。如果您不希望运行由 AI 辅助编写的内核代码，请勿安装本软件。
 
 - 在运行本程序之前请您务必备份您的EFI
+- 请先运行[兼容性检查工具](#will-it-work-on-my-hackintosh)。
 - 在更新 macOS 系统之前，请使用原版AIrportltwm.kext引导启动一次系统否则，增量更新可能会失败。
 
 ## 功能：
@@ -33,11 +34,11 @@
 
 | macOS  | Builds         | AirDrop  |
 | ------ | -------------- | -------- |
-| Sonoma | 14.8.9，测试版 | 正常工作|
+| Sonoma | 14.8.9，测试版 | 工作正常 |
 
 在其他任何版本中，驱动程序都会保持 AirDrop 关闭状态，仅作为普通 Wi-Fi 使用。
 
-**网卡：** 理论上来说Airportltwm支持的网卡本驱动都支持，但本项目仅测试了Intel AX210
+**网卡：** 理论上来说Airportltwm支持的网卡本驱动都支持，但本项目近测试了Intel AX210
 
 **请勿使用任何OCLP的Wi-Fi补丁！** AirportIntel依赖于 macOS 原生的 Wi-Fi 协议，如果您应用过 OpenCore Legacy Patcher (OCLP) 的“现代无线网络”(Modern Wireless) 根补丁，请将其撤销，并删除 `config.plist` 中由该补丁添加的相关内容。若保留这些补丁，将导致 Wi-Fi 无法启动。
 
@@ -62,9 +63,9 @@
 - **连接过程可能较慢，** 这种情况多见于从 iPhone 连接到 Mac 时。
 - **当 AirDrop 处于监听状态时，常规 Wi-Fi 的速度会有所下降**（因为它们共用同一个无线模块）。
 
-## 如果睡眠唤醒后统隔空投送失效
+## 如果睡眠唤醒后/长时间运行系统隔空投送失效
 
-- 请安装Awdl Watch Dog工具，安装说明请参阅[Awdl Watch Dog安装说明](https://github.com/Kaixi2004/AirportIntel/blob/main/docs/awdl-watchdog/安装使用说明.md)
+- 请安装Awdl Watch Dog工具，安装说明请参阅[Awdl Watch Dog安装说明](https://github.com/Kaixi2004/AirportIntel/tree/main/tools/awdl-watchdog/使用安装说明.md)
 
 ## 致谢
 
