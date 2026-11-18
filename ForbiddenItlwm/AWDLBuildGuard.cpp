@@ -8,9 +8,10 @@
 //     still has the expected functions at spread-out anchor slots, its own pure methods where
 //     expected, and ends where expected (568 slots on Tahoe, 563 on Sequoia, 547 on Sonoma). This catches a changed
 //     table on any build.
-//  -itlawdlanybuild was removed in this build: it skipped check 1 so an unverified macOS could be
-//  tested, which is a kernel panic risk the guard exists to prevent. An unverified build now stays
-//  blocked. When AWDL may not start, the driver behaves like
+//  -itlawdlanybuild was removed in this build: it skipped check 1 so an unverified macOS could be tested,
+//  and since 0.6.0-beta.2 it also sent the master indication there, with a request layout nobody could
+//  verify (a panic risk on a kernel the guard exists to protect). An unverified build now stays blocked.
+//  When AWDL may not start, the driver behaves like
 //  plain AirportItlwm: normal Wi-Fi works and nothing AWDL-related is created or sent.
 //
 

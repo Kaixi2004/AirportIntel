@@ -2,8 +2,8 @@
 // Which macOS builds AirDrop (AWDL) may run on. The AWDL interface subclasses Apple's IO80211 classes
 // and relies on their virtual tables and on a few native data layouts, so it may only start on a
 // build where those were verified. Elsewhere the driver behaves like plain AirportItlwm: normal
-// Wi-Fi works and nothing AWDL-related starts. The old -itlawdlanybuild override is gone: an
-// unverified build stays blocked instead of risking a kernel panic.
+// Wi-Fi works and nothing AWDL-related starts. An unverified build stays blocked: the
+// -itlawdlanybuild override was removed (it let a test build send an unchecked master indication).
 //
 // Each macOS version has its own kext and its own list.
 // Tahoe: 25G241 on hardware; 25G332 and 25G342 offline, from Apple's Kernel Debug Kits
