@@ -93,7 +93,7 @@ void ItlAWDLInterface::acceptNativeRequests()
     int debug = 0;
     debugFlagsWanted = PE_parse_boot_argn("-itlawdlpmdebug", &debug, sizeof(debug));
     // The request carries a raw pointer at a fixed offset, a layout checked only for the verified
-    // builds. On any other build (expected, or allowed by -itlawdlanybuild) the copy stays off.
+    // builds. On any other build (expected, or unverified) the copy stays off.
     // v5: -itlawdlmitx is on by default; the build verification still gates it.
     const bool wanted = true;
     masterIndicationEnabled = wanted && itlAWDLBuildVerified();

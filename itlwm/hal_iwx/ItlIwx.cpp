@@ -20690,10 +20690,10 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
         // flag -itlawdlcoexsamechprobe is still accepted and changes nothing; -itlawdlnosamechprobe turns it off.
         awdlCoexSameChannelProbe.enabled = awdlCoexBaTxEnabled &&
             !PE_parse_boot_argn("-itlawdlnosamechprobe", &dummy, sizeof(dummy));
-        awdlCoexBaPeerPauseEnabled = awdlCoexBaTxEnabled &&
-            PE_parse_boot_argn("-itlawdlcoexpeerpause", &dummy, sizeof(dummy));
-        awdlCoexBaTraceEnabled = awdlCoexBaTxEnabled &&
-            PE_parse_boot_argn("-itlawdlcoexbatrace", &dummy, sizeof(dummy));
+        // v5: peer pause and the Block Ack trace are always on, as in the 0.5.4 build. 0.6.0 brought
+        // the boot arguments back here by accident, so the flagless build had both off.
+        awdlCoexBaPeerPauseEnabled = awdlCoexBaTxEnabled;
+        awdlCoexBaTraceEnabled = awdlCoexBaTxEnabled;
         awdlCoexBaRefillEnabled = awdlCoexBaTxEnabled &&
             PE_parse_boot_argn("-itlawdlcoexbarefill", &dummy, sizeof(dummy));
         awdlCoexBaFilterHysteresis = awdlCoexData &&

@@ -8,7 +8,9 @@
 //     still has the expected functions at spread-out anchor slots, its own pure methods where
 //     expected, and ends where expected (568 slots on Tahoe, 563 on Sequoia, 547 on Sonoma). This catches a changed
 //     table on any build.
-//  -itlawdlanybuild skips check 1 (never check 2). When AWDL may not start, the driver behaves like
+//  -itlawdlanybuild was removed in this build: it skipped check 1 so an unverified macOS could be
+//  tested, which is a kernel panic risk the guard exists to prevent. An unverified build now stays
+//  blocked. When AWDL may not start, the driver behaves like
 //  plain AirportItlwm: normal Wi-Fi works and nothing AWDL-related is created or sent.
 //
 
@@ -103,8 +105,6 @@ bool itlAWDLBuildAllowed()
 {
     if (gAllowed >= 0)
         return gAllowed == 1;
-    int dummy = 0;
-    const bool anyBuild = PE_parse_boot_argn("-itlawdlanybuild", &dummy, sizeof(dummy));
     const ItlAWDL::BuildCheck build = ItlAWDL::checkBuild(version, nullptr);
     if (!vtableMatches()) {
         gStatus = "blocked: IO80211AWDLProtocol table differs";
@@ -118,9 +118,6 @@ bool itlAWDLBuildAllowed()
         gStatus = "expected: macOS 15.8.x kernel not checked offline";
         gAllowed = 1;
 #endif
-    } else if (anyBuild) {
-        gStatus = "unverified build, allowed by -itlawdlanybuild";
-        gAllowed = 1;
     } else {
         gStatus = "blocked: unverified macOS build";
         gAllowed = 0;
@@ -131,7 +128,7 @@ bool itlAWDLBuildAllowed()
 
 // True only for a kernel on the verified list whose table matched. Code that relies on native data
 // layouts the vtable anchors don't cover (such as the master indication request) needs this, not
-// just itlAWDLBuildAllowed(): an "expected" or -itlawdlanybuild build stays off.
+// just itlAWDLBuildAllowed(): an "expected" build stays off here.
 //
 // gVerified only says the kernel is on the list. The macOS build must pair with it too (audit P-A08);
 // kern.osversion can still be empty when the driver starts, so it's read here, when first needed (the
