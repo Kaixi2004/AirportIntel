@@ -7,7 +7,7 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix="forbiddenitlwm-tests-") as directory:
-    for name in ("awdl_requested_configuration", "awdl_protocol", "awdl_frame_builder", "awdl_sync_prefix", "awdl_local_schedule", "awdl_probe_policy", "awdl_data_payload", "awdl_data_frame", "awdl_observation", "awdl_regulatory", "awdl_tx_burst", "awdl_peer_schedule", "awdl_build_guard", "btleadv_hci", "eapol_key_length", "wcl_transition", "counted_copy", "scan_cursor"):
+    for name in ("awdl_requested_configuration", "awdl_protocol", "awdl_frame_builder", "awdl_sync_prefix", "awdl_local_schedule", "awdl_probe_policy", "awdl_data_payload", "awdl_data_frame", "awdl_observation", "awdl_regulatory", "awdl_tx_burst", "awdl_peer_schedule", "awdl_build_guard", "btleadv_hci", "btleadv_verify", "eapol_key_length", "ptk_derive", "wcl_transition", "counted_copy", "scan_cursor"):
         output = Path(directory) / name
         subprocess.run([
             "xcrun", "clang++", "-std=c++14",
@@ -36,6 +36,7 @@ subprocess.run(["python3", str(root / "tests/awdl_reconnect_recovery.py")], chec
 # Joins in crowded places and on 802.1X networks: extracted net80211 bodies (#69, runmain).
 subprocess.run(["python3", str(root / "tests/node_cache_join.py")], check=True)
 subprocess.run(["python3", str(root / "tests/wcl_enterprise_link.py")], check=True)
+subprocess.run(["python3", str(root / "tests/awdl_tlc_rates.py")], check=True)
 # The pattern set for the bluetoothd installed here (PR #1); 26.7.1's set elsewhere.
 build = subprocess.check_output(["sw_vers", "-buildVersion"], text=True).strip()
 pattern_set = {"25G241": "2671", "25G332": "2672", "25G342": "2673"}.get(build, "2671")
@@ -63,3 +64,4 @@ with tempfile.TemporaryDirectory(prefix="forbidden-lqm-") as directory:
     subprocess.run(["xcrun", "clang++", "-std=c++14", "-fsanitize=address,undefined",
                     str(root / "tests/wcl_lqm_merge.cpp"), "-o", output], check=True)
     subprocess.run([output], check=True)
+subprocess.run(["python3", str(root / "tests/awdl_tx_park.py")], check=True)

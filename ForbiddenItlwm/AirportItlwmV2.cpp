@@ -101,6 +101,25 @@ void ItlAWDLInterface::acceptNativeRequests()
     setProperty("ItlwmAWDLMiState", !wanted ? "off" : masterIndicationEnabled ? "on" : "blocked: build not verified");
 }
 
+#if __IO80211_TARGET != __MAC_14_4   // not a virtual on Sonoma
+// wifip2pd sets a new, random address on awdl0 (it logged "Can't assign requested address" while this
+// was refused, #85). The address is ours to use: the announcement, data frames and receive filtering
+// all read localFrameAddress, and the firmware listener follows the address of the sync frames macOS
+// builds, changing its own before it sends anything. Nothing is published but the count.
+// From ann0see's diff in #85.
+IOReturn ItlAWDLInterface::setMacAddress(ether_addr &address)
+{
+    IOLock *lock = ensureConfigurationLock();
+    if (!lock)
+        return kIOReturnNoMemory;
+    IOLockLock(lock);
+    memcpy(localFrameAddress, &address, sizeof(localFrameAddress));
+    IOLockUnlock(lock);
+    setProperty("ItlwmAWDLAddressSetCalls", ++addressSetCalls, 32);
+    return kIOReturnSuccess;
+}
+#endif
+
 IOReturn ItlAWDLInterface::getAWDL_AF_TX_MODE(apple80211_awdl_af_tx_mode *data)
 {
     if (!nativeState.accept)
@@ -214,7 +233,19 @@ extern unsigned itlAWDLFixedChannel();
 extern unsigned itlAWDLChannelClass();
 extern bool itlAWDLBuildAllowed();
 extern const char *itlAWDLBuildStatus();
+// The card's own spatial streams, from the HAL's MCS set: MCS 8-15 exists only with MIMO enabled and
+// two receive antennas (iwx_setup_ht_rates). 0 until the set is known. A one-antenna card (9461, 9462,
+// AX101; #87) must not tell macOS or peers it has two streams.
+static volatile int gItlAWDLCardStreams = 0;
+int itlAWDLNoteCardStreams(const struct ieee80211com *ic)
+{
+    if (ic && ic->ic_sup_mcs[0])
+        gItlAWDLCardStreams = ic->ic_sup_mcs[1] ? 2 : 1;
+    return gItlAWDLCardStreams;
+}
+
 // With -itlawdlcaps the driver reports two HT streams and VHT to macOS; our TLV 7 says the same.
+// Two streams only while the card isn't known to have one.
 static bool itlAWDLTwoStreams()
 {
     static int cached = -1;
@@ -224,7 +255,7 @@ static bool itlAWDLTwoStreams()
         cached = itlAWDLBuildAllowed() &&
             !PE_parse_boot_argn("-itlawdlcapshtonly", &dummy, sizeof(dummy)) ? 1 : 0;
     }
-    return cached == 1;
+    return cached == 1 && gItlAWDLCardStreams != 1;
 }
 
 bool ItlAWDLInterface::copyMasterIndication(uint8_t *output, size_t capacity, size_t *written)
@@ -583,19 +614,55 @@ UInt32 ItlAWDLInterface::acceptTransmit(IOSkywalkPacket *const *packets, UInt32 
 bool ItlAWDLInterface::popTransmit(uint8_t *output, size_t available, size_t *written,
                                    const uint8_t *holdPayloadFor, bool holdEverySize)
 {
-    ++transmitDepthBins[ItlAWDL::depthBin(transmitQueued)];
+    ++transmitDepthBins[ItlAWDL::depthBin(transmitQueued + parkedQueued)];
+    // The parked frames first, in their order, once their peer is no longer held.
+    while (parkedQueued && !(holdPayloadFor && ItlAWDL::sameAddress(parkedPeer, holdPayloadFor))) {
+        const auto &frame = parkedFrames[parkedHead];
+        const auto result = ItlAWDL::buildDataFrameFromEthernet(frame.bytes, frame.length, localFrameAddress,
+                                                                transmitSequence, output, available, written);
+        parkedHead = (parkedHead + 1) % parkedFrameCount;
+        --parkedQueued;
+        ++transmitPopped;
+        if (result == ItlAWDL::BuildResult::Ready) {
+            ++transmitSequence;
+            return true;
+        }
+        ++transmitDropped;
+    }
     while (transmitQueued) {
         const auto &frame = transmitFrames[transmitHead];
         const auto result = ItlAWDL::buildDataFrameFromEthernet(frame.bytes, frame.length, localFrameAddress,
                                                                 transmitSequence, output, available, written);
-        // Hold what is for the capped peer. Leave the FIFO head and sequence intact. With holdEverySize
-        // (iface160) that is every unicast data frame for it: a short frame let past would overtake the
-        // held packets of the same QUIC connection on the listener's unpaused queue, and QUIC counts
-        // overtaken packets as lost. Without it, only payload-sized frames, as on iface157 to iface159.
-        if (result == ItlAWDL::BuildResult::Ready && holdPayloadFor && (holdEverySize || *written >= 1200) &&
-            output[0] == 0x08 && ItlAWDL::sameAddress(output + 4, holdPayloadFor)) {
+        // Hold what is for the capped peer. With holdEverySize (iface160) that is every unicast data frame for
+        // it: a short frame let past would overtake the held packets of the same QUIC connection on the
+        // listener's unpaused queue, and QUIC counts overtaken packets as lost. Without it, only payload-sized
+        // frames, as on iface157 to iface159. Held frames are parked, in order, so the frames behind them for
+        // other peers still go; once some of its frames are parked, all of that peer's later ones join them.
+        const bool unicastData = result == ItlAWDL::BuildResult::Ready && output[0] == 0x08 && !(output[4] & 1);
+        const bool held = unicastData && holdPayloadFor && (holdEverySize || *written >= 1200) &&
+            ItlAWDL::sameAddress(output + 4, holdPayloadFor);
+        const bool behindParked = unicastData && parkedQueued && ItlAWDL::sameAddress(output + 4, parkedPeer);
+        if (held || behindParked) {
+            const bool shortFrame = *written < 1200;
+            if (parkedFrames && parkedQueued < parkedFrameCount &&
+                (!parkedQueued || ItlAWDL::sameAddress(output + 4, parkedPeer))) {
+                if (!parkedQueued)
+                    memcpy(parkedPeer, output + 4, sizeof(parkedPeer));
+                auto &slot = parkedFrames[(parkedHead + parkedQueued) % parkedFrameCount];
+                slot.length = frame.length;
+                memcpy(slot.bytes, frame.bytes, frame.length);
+                ++parkedQueued;
+                parkedPeak = max(parkedPeak, parkedQueued);
+                ++transmitParked;
+                if (shortFrame)
+                    ++transmitHeldShort;
+                transmitHead = (transmitHead + 1) % transmitFrameCount;
+                --transmitQueued;
+                continue;
+            }
+            // No room to park it: it waits at the head, and what is behind it waits too, as before.
             // Once per frame, not once per attempt: the pump asks again every millisecond.
-            if (*written < 1200 && transmitHeldMark != transmitPopped + 1) {
+            if (shortFrame && transmitHeldMark != transmitPopped + 1) {
                 transmitHeldMark = transmitPopped + 1;
                 ++transmitHeldShort;
             }
@@ -605,6 +672,8 @@ bool ItlAWDLInterface::popTransmit(uint8_t *output, size_t available, size_t *wr
         --transmitQueued;
         ++transmitPopped;
         if (result == ItlAWDL::BuildResult::Ready) {
+            if (parkedQueued)
+                ++transmitPassed;   // Went ahead of the held peer's frames.
             ++transmitSequence;
             return true;
         }
@@ -631,12 +700,15 @@ bool ItlAWDLInterface::serviceTransmit()
         setProperty("ItlwmAWDLTxAccepted", transmitAccepted, 32);
         setProperty("ItlwmAWDLTxCompleted", transmitCompleted, 32);
         setProperty("ItlwmAWDLTxDropped", transmitDropped, 32);
+        setProperty("ItlwmAWDLTxParked", transmitParked, 32);
+        setProperty("ItlwmAWDLTxParkedPeak", parkedPeak, 32);
+        setProperty("ItlwmAWDLTxPassedParked", transmitPassed, 32);
         if (auto *depths = OSData::withBytes(transmitDepthBins, sizeof(transmitDepthBins))) {
             setProperty("ItlwmAWDLTxDepthBins", depths);
             depths->release();
         }
     }
-    return transmitQueued || transmitDoneCount;
+    return transmitQueued || parkedQueued || transmitDoneCount;
 }
 
 UInt32 ItlAWDLInterface::rejectTransmit(OSObject *owner, IOSkywalkTxSubmissionQueue*,
@@ -709,6 +781,9 @@ void ItlAWDLInterface::releaseNetworkResources()
         dataTransmitEnabled = false;
     transmitQueued = 0;
     transmitHead = 0;
+    // The held peer's copies go with the queue they came from.
+    parkedQueued = 0;
+    parkedHead = 0;
     if (registrationAttempted) {
         registrationAttempted = false;
         deregisterEthernetInterface(0);
@@ -819,6 +894,11 @@ void ItlAWDLInterface::free()
         IOFree(transmitFrames, transmitFramesBytes);
         transmitFrames = nullptr;
         transmitFramesBytes = 0;
+    }
+    if (parkedFrames) {
+        IOFree(parkedFrames, sizeof(TransmitFrame) * parkedFrameCount);
+        parkedFrames = nullptr;
+        parkedQueued = 0;
     }
     if (configurationLock) {
         IOLockFree(configurationLock);
@@ -1016,7 +1096,7 @@ IOReturn ItlAWDLInterface::initializeNetwork(IO80211Controller *controller,
     noteQueueState("ItlwmAWDLQueueStateAtRegistration");
     // v5: the transmit path is always allocated, with the awdl0 queue size the tuning settled on
     // (itlawdltxqueue=4096). No boot argument required.
-    transmitFrameCount = 4096;
+    transmitFrameCount = transmitFrameCapacity;
     // A second initialisation of the same object frees the first array instead of leaking it (audit D03).
     if (transmitFrames) {
         IOFree(transmitFrames, transmitFramesBytes);
@@ -1026,6 +1106,16 @@ IOReturn ItlAWDLInterface::initializeNetwork(IO80211Controller *controller,
     transmitFrames = static_cast<TransmitFrame *>(IOMalloc(sizeof(TransmitFrame) * transmitFrameCount));
     if (transmitFrames)
         transmitFramesBytes = sizeof(TransmitFrame) * transmitFrameCount;
+    // Room to park as many frames as the FIFO holds, up to parkedFrameMax. Without it a held frame waits at
+    // the head as before.
+    if (parkedFrames) {
+        IOFree(parkedFrames, sizeof(TransmitFrame) * parkedFrameCount);
+        parkedFrames = nullptr;
+    }
+    parkedQueued = parkedHead = 0;
+    parkedFrameCount = min(transmitFrameCount, parkedFrameMax);
+    parkedFrames = static_cast<TransmitFrame *>(IOMalloc(sizeof(TransmitFrame) * parkedFrameCount));
+    setProperty("ItlwmAWDLTxParkFrames", parkedFrames ? parkedFrameCount : 0, 32);
     dataTransmitEnabled = transmitFrames != nullptr;
     setProperty("ItlwmAWDLTxQueueFrames", transmitFrameCount, 32);
     // v5: the packet queues are always enabled; -itlawdlcoexdata used to be the switch.
@@ -1941,12 +2031,16 @@ bool AirportItlwm::startDriver(IOService *provider)
     setLinkStatus(kIONetworkLinkValid);
     if (TAILQ_EMPTY(&fHalService->get80211Controller()->ic_ess))
         fHalService->get80211Controller()->ic_flags |= IEEE80211_F_AUTO_JOIN;
+    // The HAL built its rate set at the first firmware load: record the card's streams for -itlawdlcaps.
+    setProperty("ItlwmCardStreams", uint32_t(itlAWDLNoteCardStreams(fHalService->get80211Controller())), 32);
 #ifdef AIRPORT_WCL
     awdlManagementInputEnabled = true;
     bsdInterface->registerService();
 #endif
     // v1 fix: without WCL (Sonoma) the flag never left false, so receiveAWDLActionFrame() refused every
     // frame the listener forwarded (ITLAWDLCoexForwardRefused) and awdl0 stayed empty. Set it here too.
+    // Kept as a nested !AIRPORT_WCL guard rather than upstream's bare #else: the flag is only read by
+    // the ITL_AWDL_NATIVE paths, so there is no point setting it in a build that compiles none of them.
 #if defined(ITL_AWDL_NATIVE)
 #ifndef AIRPORT_WCL
     awdlManagementInputEnabled = true;
@@ -2051,7 +2145,7 @@ IOReturn AirportItlwm::enable(IO80211SkywalkInterface *netif)
         return kIOReturnNotReady;
     _fCommandGate->enable();
     if (power_state)
-        enableAdapter(bsdInterface);
+        enableAdapterWhenPowered();
     return kIOReturnSuccess;
 }
 
@@ -2529,6 +2623,8 @@ getCARD_CAPABILITIES(OSObject *object,
     // v2 fix: the AWDL capability bits were set only on the WCL path above. Sonoma builds without WCL,
     // so macOS wifip2pd never saw them, never called setVIRTUAL_IF_CREATE() for awdl0
     // (ItlwmAWDLCreateRequests stayed 0) and iPhone to Mac AirDrop could not receive.
+    // Upstream's 0.6.0-beta.3 form of this block only sets byte 4 bit 0; this one also reports the
+    // physical bands in byte 3 bit 5, which is what the native configureValidAWDLChannels() reads.
     if (awdlInterfaceTest) {
         cd->capabilities[4] |= 0x01; // AWDL capability bit - wifip2pd checks raw byte 4 bit 0
         // Native configureValidAWDLChannels tests capability byte 3 bit 5. Report the physical bands from
@@ -2679,6 +2775,7 @@ setPOWER(OSObject *object,
         bool isRunning = (fHalService->get80211Controller()->ic_ac.ac_if.if_flags & IFF_RUNNING) != 0;
         if (pd->power_state[0] == 0) {
             fHalService->get80211Controller()->ic_wcl_mac_reconfig = false;
+            enableAwaitingPowerOn = false;
             changePowerStateToPriv(kPowerStateOff);
             if (fHalService->get80211Controller()->ic_ac.ac_if.if_flags & (IFF_UP | IFF_RUNNING)) {
                 net80211_ifstats(fHalService->get80211Controller());
@@ -2687,7 +2784,7 @@ setPOWER(OSObject *object,
         } else {
             changePowerStateToPriv(kPowerStateOn);
             if (!isRunning)
-                enableAdapter(bsdInterface);
+                enableAdapterWhenPowered();
         }
         power_state = (pd->power_state[0]);
     }
@@ -2700,6 +2797,7 @@ setPOWER(OSObject *object,
     if (pd->num_radios > 0) {
         bool isRunning = (fHalService->get80211Controller()->ic_ac.ac_if.if_flags & (IFF_UP | IFF_RUNNING)) != 0;
         if (pd->power_state[0] == 0) {
+            enableAwaitingPowerOn = false;
             changePowerStateToPriv(1);
             if (isRunning) {
                 net80211_ifstats(fHalService->get80211Controller());
@@ -2708,7 +2806,7 @@ setPOWER(OSObject *object,
         } else {
             changePowerStateToPriv(2);
             if (!isRunning)
-                enableAdapter(bsdInterface);
+                enableAdapterWhenPowered();
         }
         power_state = (pd->power_state[0]);
     }
@@ -2953,6 +3051,7 @@ void AirportItlwm::setPowerStateOff()
 {
     XYLog("%s\n", __FUNCTION__);
     pmPowerState = kPowerStateOff;
+    enableAwaitingPowerOn = false;
     disableAdapter(bsdInterface);
     pmPolicyMaker->acknowledgeSetPowerState();
 }
@@ -2962,4 +3061,28 @@ void AirportItlwm::setPowerStateOn()
     XYLog("%s\n", __FUNCTION__);
     pmPowerState = kPowerStateOn;
     pmPolicyMaker->acknowledgeSetPowerState();
+    // Wi-Fi was asked for while the card was still off (#38): start it now that it's powered.
+    if (enableAwaitingPowerOn && power_state) {
+        enableAwaitingPowerOn = false;
+        XYLog("%s: starting the deferred Wi-Fi enable\n", __FUNCTION__);
+        enableAdapter(bsdInterface);
+    }
+}
+
+// #38: on a full wake macOS can ask for Wi-Fi (setPOWER, or the interface's enable) a few milliseconds
+// before the power manager has powered the card back on (setPowerStateOn). The card then reads all-ones,
+// initialization fails, and nothing retried it, so Wi-Fi stayed off until it was toggled. While the
+// power state is off, remember the request instead, and start the adapter in setPowerStateOn. A power-off
+// or a Wi-Fi-off request in between drops it, so a dark wake never starts Wi-Fi. Before power management
+// is registered there is no power state to wait for, so Wi-Fi starts at once, as before.
+void AirportItlwm::enableAdapterWhenPowered()
+{
+    if (pmPolicyMaker && pmPowerState != kPowerStateOn) {
+        enableAwaitingPowerOn = true;
+        setProperty("ItlwmEnableDeferrals", ++enableDeferrals, 32);
+        XYLog("%s: power is off, starting Wi-Fi once it's on\n", __FUNCTION__);
+        return;
+    }
+    enableAwaitingPowerOn = false;
+    enableAdapter(bsdInterface);
 }
